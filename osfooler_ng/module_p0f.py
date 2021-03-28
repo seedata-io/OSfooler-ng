@@ -1,5 +1,7 @@
 ## This file is part of Scapy
 ## See http://www.secdev.org/projects/scapy for more informations
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
 ## Copyright (C) Philippe Biondi <phil@secdev.org>
 ## This program is published under a GPLv2 license
 
