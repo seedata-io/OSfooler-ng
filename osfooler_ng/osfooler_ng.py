@@ -4,22 +4,23 @@
 from random import randint
 import hashlib
 import logging
-import module_p0f
+from osfooler_ng import module_p0f
 import socket
 import fcntl
 import struct
+import codecs
 import optparse
 import sys
 import time
 import os
 import netfilterqueue as nfqueue
-import ConfigParser
+import configparser
 import ast
 l = logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 from scapy.all import *
 from dpkt import *
 from socket import AF_INET, AF_INET6, inet_ntoa
-import urllib
+import urllib.request
 import multiprocessing
 from multiprocessing import Process
 
@@ -80,15 +81,15 @@ TCP_OPT_MAX = 27
 
 # Some knowledge about nmap packets
 # Options
-T1_opt1 = "03030a01020405b4080affffffff000000000402"
-T1_opt2 = "020405780303000402080affffffff0000000000"
-T1_opt3 = "080affffffff0000000001010303050102040280"
-T1_opt4 = "0402080affffffff0000000003030a00"
-T1_opt5 = "020402180402080affffffff0000000003030a00"
-T1_opt6 = "020401090402080affffffff00000000"
-T2_T6_opt = "03030a0102040109080affffffff000000000402"
-T7_opt = "03030f0102040109080affffffff000000000402"
-ECN_opt = "03030a01020405b404020101"
+T1_opt1 = b'03030a01020405b4080affffffff000000000402'
+T1_opt2 = b'020405780303000402080affffffff0000000000'
+T1_opt3 = b'080affffffff0000000001010303050102040280'
+T1_opt4 = b'0402080affffffff0000000003030a00'
+T1_opt5 = b'020402180402080affffffff0000000003030a00'
+T1_opt6 = b'020401090402080affffffff00000000'
+T2_T6_opt = b'03030a0102040109080affffffff000000000402'
+T7_opt = b'03030f0102040109080affffffff000000000402'
+ECN_opt = b'03030a01020405b404020101'
 # Window Size
 T1_1w = "1"
 T1_2w = "63"
@@ -104,7 +105,7 @@ T6w = "32768"
 T7w = "65535"
 ECEw = "3"
 # Payloads
-udp_payload = "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"
+udp_payload = 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC'
 
 # Parse fields in nmap-db
 def parse_nmap_field(field):
@@ -112,7 +113,7 @@ def parse_nmap_field(field):
     # Choose randomly one value :)
     list = field.split("|")
     # Filter any empty string
-    list = filter (None,list)
+    list = [_f for _f in list if _f]
     result = random.choice(list)
   else:
     result = field
@@ -124,7 +125,7 @@ def get_ip_address(ifname):
   return socket.inet_ntoa(fcntl.ioctl(
     s.fileno(),
     0x8915,  # SIOCGIFADDR
-    struct.pack('256s', ifname[:15])
+    struct.pack('256s', bytes(ifname[:15], 'utf-8'))
     )[20:24])
 
 def show_banner():
@@ -397,8 +398,8 @@ def send_ECN_response(pl, probe):
       TCP(sport=pkt.tcp.dport, dport=pkt.tcp.sport, window=W, options=opts, flags=FLAGS), verbose=0)
 
 def send_probe_response_T1(pl, probe, packet):
-    global IPID 
-    pkt = ip.IP(pl.get_payload()) 
+    global IPID
+    pkt = ip.IP(pl.get_payload())
     # IP DON'T FRAGMENT BIT (DF)
     df_parsed = parse_nmap_field(base[probe][1][1])
     if (df_parsed == "Y"):
@@ -478,7 +479,7 @@ def get_base():
                 continue
             cursor = l[:op]
             dic[cursor] = (
-                list(map(lambda x: x.split("="), l[op + 1:cl].split("%"))))
+                list([x.split("=") for x in l[op + 1:cl].split("%")]))
     return dic
 
 def get_names(search):
@@ -506,7 +507,7 @@ def get_names(search):
                     continue
                 cursor = l[:op]
                 dic[cursor] = (
-                    list(map(lambda x: x.split("="), l[op + 1:cl].split("%"))))
+                    list([x.split("=") for x in l[op + 1:cl].split("%")]))
     return dic
 
 def list_os():
@@ -546,7 +547,7 @@ def search_os(search_string):
     # Search p0f database
     db = module_p0f.p0f_kdb.get_base()
     p0f_values = []
-    for i in range(0, 250):
+    for i in range(0, len(db)):
       if (re.search(search_string, db[i][6], re.IGNORECASE) or re.search(search_string, db[i][7], re.IGNORECASE)) :
         p0f_values.append("OS: \"" + db[i][6] + "\" DETAILS: \"" + db[i][7] + "\"")
     # Print results
@@ -595,7 +596,6 @@ def options_to_scapy(x):
 def print_tcp_packet(pl, destination): 
     pkt = ip.IP(pl.get_payload())
     option_list = tcp.parse_opts(pkt.tcp.opts)
-    
     if opts.verbose:
         print(" [+] Modifying '%s' packet in real time (total length %s)" % (destination, pl.get_payload_len()))
         print("      [+] IP:  source %s destination %s tos %s id %s" % (inet_ntoa(pkt.src), inet_ntoa(pkt.dst), pkt.tos, pkt.id))
@@ -627,22 +627,22 @@ def print_udp_packet(pl):
 def cb_p0f( pl ): 
 
     pkt = ip.IP(pl.get_payload())
-    
+
     if (inet_ntoa(pkt.src) == home_ip) and (pkt.p == ip.IP_PROTO_TCP) and (tcp_flags(pkt.tcp.flags) == "S"):
-        options = pkt.tcp.opts.encode('hex_codec')
-        op = options.find("080a")
+        options = codecs.encode(pkt.tcp.opts, 'hex_codec')
+        op = options.find(b'080a')
         if (op != -1):
             op = op + 7
             timestamp = options[op:][:5]
             i = int(timestamp, 16)
-        if opts.osgenre and opts.details_p0f: 
+        if opts.osgenre and opts.details_p0f:
             try:
                 pkt_send = module_p0f.p0f_impersonate(IP(dst=inet_ntoa(pkt.dst), src=inet_ntoa(pkt.src), id=pkt.id, tos=pkt.tos) / TCP(
                     sport=pkt.tcp.sport, dport=pkt.tcp.dport, flags='S', seq=pkt.tcp.seq, ack=0), i, osgenre=opts.osgenre, osdetails=opts.details_p0f)
                 if opts.verbose:
                     print_tcp_packet(pl, "p0f")
-                pl.set_payload(str(pkt_send))
-                pl.accept()  
+                pl.set_payload(bytes(pkt_send))
+                pl.accept()
             except Exception as exce:
                 print(" [+] Unable to modify packet with p0f personality...")
                 print(" [+] Aborting")
@@ -653,8 +653,8 @@ def cb_p0f( pl ):
                     sport=pkt.tcp.sport, dport=pkt.tcp.dport, flags='S', seq=pkt.tcp.seq), i, osgenre=opts.osgenre)
                 if opts.verbose:
                   print_tcp_packet(pl, "p0f") 
-                pl.set_payload(str(pkt_send))
-                pl.accept() 
+                pl.set_payload(bytes(pkt_send))
+                pl.accept()
             except Exception as exce:
                 print(" [+] Unable to modify packet with p0f personality...")
                 print(" [+] Aborting")
@@ -666,11 +666,11 @@ def cb_p0f( pl ):
       #  return 0
 
 # Process nmap packets
-def cb_nmap( pl): 
-    pkt = ip.IP(pl.get_payload())   
+def cb_nmap( pl):
+    pkt = ip.IP(pl.get_payload())
     if pkt.p == ip.IP_PROTO_TCP:
         # Define vars for conditional loops
-        options = pkt.tcp.opts.encode('hex_codec')
+        options = codecs.encode(pkt.tcp.opts, 'hex_codec')
         flags = tcp_flags(pkt.tcp.flags)
         if (flags == "S") and (pkt.tcp.win == 1) and (options == T1_opt1):
             # nmap packet detected: Packet1 #1
@@ -767,7 +767,7 @@ def cb_nmap( pl):
             print_icmp_packet(pl)
             pl.drop() 
             if (base["IE"][0][0] != "R"):
-                send_icmp_response(payload, "IE")
+                send_icmp_response(pl, "IE")
         elif (pkt.icmp.code == 0) and (pkt.icmp.type == 8) and (len(pkt.icmp.data.data) == 150):
             # nmap packet detected: Packet ICMP #2
             print_icmp_packet(pl)
@@ -799,7 +799,7 @@ def update_nmap_db():
   sys.stdout.write(' [+] Checking nmap database... ')
   sys.stdout.flush()
   url = 'https://svn.nmap.org/nmap/nmap-os-db'
-  response = urllib.urlopen(url)
+  response = urllib.request.urlopen(url)
   data = response.read()
   m = hashlib.md5()
   m.update(data)
@@ -807,7 +807,7 @@ def update_nmap_db():
   old_db=md5(get_nmap_os_db_path())
   if (new_db != old_db):
     f = open(get_nmap_os_db_path(), "w")
-    f.write(data)
+    f.write(data.decode('utf-8'))
     f.close()
     print("updated!")
   else:
@@ -873,7 +873,7 @@ def main():
   if opts.p0f:
     print("Please, select p0f OS Genre and Details")
     db = module_p0f.p0f_kdb.get_base()
-    for i in range(0, 250):
+    for i in range(0, len(db)):
       print("\tOS Genre=\"%s\" Details=\"%s\"" % (db[i][6], db[i][7]))
     exit(0)
 
@@ -927,16 +927,17 @@ def main():
     print(" [+] Mutating to p0f:")
     db = module_p0f.p0f_kdb.get_base()
     exists = 0
+    db_size = len(db)
     if (opts.osgenre == "random"):
-      rand_os = randint(0,250)
+      rand_os = randint(0,db_size)
       opts.osgenre = db[rand_os][6]
     if (not opts.details_p0f):
-      for i in range(0, 250):
+      for i in range(0, db_size):
         if (db[i][6] == opts.osgenre):
           print("      WWW:%s|TTL:%s|D:%s|SS:%s|OOO:%s|QQ:%s|OS:%s|DETAILS:%s" % (db[i][0],db[i][1],db[i][2],db[i][3],db[i][4],db[i][5],db[i][6],db[i][7]))
           exists = 1
     if (opts.details_p0f):
-      for i in range(0, 250):
+      for i in range(0, db_size):
         if (db[i][6] == opts.osgenre and db[i][7] == opts.details_p0f):
           print("      WWW:%s|TTL:%s|D:%s|SS:%s|OOO:%s|QQ:%s|OS:%s|DETAILS:%s" % (db[i][0],db[i][1],db[i][2],db[i][3],db[i][4],db[i][5],db[i][6],db[i][7]))
           exists = 1
@@ -947,29 +948,37 @@ def main():
 
   if (not opts.details_p0f and opts.osgenre):
       print(" [i] You've only selected p0f OS genre. Details will be chosen randomly every packet from the list bellow")
-  
+
   # Start activity
   print(" [+] Activating queues")
   procs = []
   # nmap mode
-  if opts.os:  
-    os.system("iptables -A INPUT -j NFQUEUE --queue-num %s" % q_num0) 
+  if opts.os:
+    os.system("iptables -A INPUT -j NFQUEUE --queue-num %s" % q_num0)
     proc = Process(target=init,args=(q_num0,))
     procs.append(proc)
     proc.start() 
   # p0f mode
   if (opts.osgenre):
     global home_ip
-    home_ip = get_ip_address(interface)  
-    os.system("iptables -A OUTPUT -p TCP --syn -j NFQUEUE --queue-num %s" % q_num1) 
+    home_ip = get_ip_address(interface)
+    os.system("iptables -A OUTPUT -p TCP --syn -j NFQUEUE --queue-num %s" % q_num1)
     proc = Process(target=init,args=(q_num1,))
     procs.append(proc)
     proc.start() 
   # Detect mode
 
   try:
-    for proc in procs:
-      proc.join()
+      for proc in procs:
+        proc.join()
+      print()
+      # Flush all iptabels rules
+      if (q_num0 >= 0):
+        os.system("iptables -D INPUT -j NFQUEUE --queue-num %s" % q_num0) 
+      if (q_num1 >= 1):
+        os.system("iptables -D OUTPUT -p TCP --syn -j NFQUEUE --queue-num %s" % q_num1) 
+      print(" [+] Active queues removed")
+      print(" [+] Exiting OSfooler...")
   except KeyboardInterrupt:
       print
       # Flush all iptabels rules
