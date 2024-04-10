@@ -1,0 +1,11 @@
+services:
+  server:
+    build:
+      context: .
+      args:
+        personality: "Linux 5.0"
+    ports:
+      - 8000:8000
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
