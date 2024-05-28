@@ -838,7 +838,7 @@ def init(queue):
 def update_nmap_db():
     sys.stdout.write(' [+] Checking nmap database... ')
     sys.stdout.flush()
-    url = 'https://svn.nmap.org/nmap/nmap-os-db'
+    url = 'https://raw.githubusercontent.com/nmap/nmap/master/nmap-os-db'
     response = urllib.request.urlopen(url)
     data = response.read()
     m = hashlib.md5()
